@@ -318,7 +318,7 @@
                                 }
                             }
 
-                            if (!shoda) nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                            if (!shoda) nova_data_pro_graf.push( { time: parseFloat(val.t), open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
                         });
 
                         //Přidáme nové data do data_pro_graf a vykreslíme do grafu
