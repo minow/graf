@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <script type="text/javascript" src="lightweight-charts.standalone.unminified.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="images/favicon.png">
+    <title>Graf</title>
+    <meta name="robots" content="noindex, nofollow">
+</head>
+<body class="dark">
+    <div id="inputs">
+        <select id="pairs"></select>
+        <span class="split"></span>
+        <span id="timeline"></span>
+        <span class="split"></span>
+        <span><a href='index.html#' id="button_y_auto" class='button' onclick="button_y_auto_toggle(); return false;">Y auto</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' class='button' onclick="button_x_reset(); return false;">X reset</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' class='button' onclick="button_x_max(); return false;">X max</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' class='button' onclick="dots_delete(); drawUsecka_delete(); return false;">DOTS del</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' class='button' onclick="dots_send(); return false;">DOTS</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' id="button_toggle_theme" class='button' onclick="theme_toggle(); return false;">Light</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' id="button_toggle_bt" class='button red' onclick="bt_toggle(); return false;">BT</a></span>
+        <span class="split"></span>
+        <span><a href='index.html#' id="button_toggle_candles" class='button active' onclick="toggle_candles_websocket(); return false;">WsC</a></span>
+        <span class="split"></span>
+        <span id="pos_buttons"></span>
+        <span class="split"></span>
+        <i class="icon icon-connect statusicon"></i>
+        <span id="status">Spojení s WS přerušeno</span>
+    </div>
+    <div id="data"></div>
+    <div id="label"></div>
+    <div id="graf"></div>
+    <div class="go-to-realtime-button"></div>
+    <div id="loading_fullscreen"><div id="center_container"><img id="loading-icon" src="images/loading.svg" alt="Loading..."></div></div>
+
+    <script>
+        var active_timeline_button = "15s";
+        var active_timeframe_krok = 15;
+        var bars_right_offset = 6;
+        var logicalRange;
+        var data_pro_graf = [];
+        var chart, candleSerie, data_interval;
+        var areaSerie;
+        var socket;
+        var limit = 100;
+        var force_history_stop = false;
+        var force_future_stop = false;
+        var pridatStarsiDataDoGrafu_locked = false;
+        var ws_force_stop = false;
+        var povoleni_k_pridavani_novych_svicek = true;
+        var zpatky_do_minulosti = false;
+        var chart_width = $("html").width();
+        var chart_height = $("html").height()-$("#inputs").height();
+        var dots_count = 0;
+        var dotsSerie = [];
+        var allDotsSerie = [];
+        var allDotsSerieData = [];
+        var wCandle = 0;
+        var test_mode = "";
+        var new_ts_future_candles_limit = 5555;
+
+        $( document ).ready(function() {
+
+            $.getJSON( "https://cstor.efik.cz/"+ test_mode +"basics/1/cz", function( data ) {
+                //console.log(data.basics);
+                wCandle = data.basics.wCandle;
+                logicalRange = Math.round($("html").width()/data.basics.wCandle);
+                limit = logicalRange;
+
+                var items = [];
+                $.each( data.basics.pairs, function( key, val ) {
+                items.push( "<option>" + val.pair + "</option>" );
+                });
+
+                var items2 = [];
+                $.each( data.basics.timeframes, function( key, val ) {
+                    var active_class_add = '';
+                    if (active_timeline_button === key) active_class_add = ' active';
+                    items2.push( "<a href='index.html#' class='timeframe_button"+ active_class_add +"' id='timeframe_"+ key +"' data-krok='"+ val +"'>"+ key +"</a>");
+                });
+
+                $( "#pairs" ).html(items.join( "" ));
+                $( "#timeline" ).html(items2.join( "" ));
+                $( "#timeline_1w" ).prop("checked", true);
+
+                $( "#pairs" ).change(function() {
+                    pripravitDataProGraf('2-#pairs');
+                });
+                $('.timeframe_button').click(function(event) {
+                    event.preventDefault();
+                    $('.timeframe_button').removeClass("active");
+                    this.classList.add("active");
+                    active_timeline_button = this.innerHTML;
+                    active_timeframe_krok = parseInt(this.dataset.krok);
+                    pripravitDataProGraf('3-tframe');
+                });
+
+                pripravitDataProGraf('4-json');
+
+                $( window ).resize(function() {
+                    chart_width = $("html").width();
+                    chart_height = $("html").height()-$("#inputs").height();
+                    chart.resize(chart_width, chart_height);
+                });
+
+            });
+        });
+
+        function pripravitDataProGraf(caller) {
+            console.log(caller);
+            $.getJSON( "https://cstor.efik.cz/"+ test_mode +"charte/"+ $('#pairs').val() +"/"+ active_timeline_button +"/0/"+ limit, function( data ) {
+                var graf_data = [];
+                $.each( data.chart, function( key, val ) {
+                    graf_data.push( { time: parseFloat(val.t), open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                });
+                data_pro_graf = graf_data;
+
+                vytvoritGraf();
+            });
+        }
+
+        function vytvoritGraf() {
+            dots_delete();
+            drawUsecka_delete();
+            //chart.removeSeries(candleSerie);
+            document.getElementById("graf").innerHTML = "";
+
+            //set width/height
+            chart_width = $("html").width();
+            chart_height = $("html").height()-$("#inputs").height();
+
+            chart = LightweightCharts.createChart(document.getElementById("graf"), {
+                width: chart_width,
+                height: chart_height,
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+
+                //rightPriceScale: {
+                //    mode: LightweightCharts.PriceScaleMode.Percentage,
+                //},
+
+                timeScale: {
+                    rightOffset: 12,
+                    timeVisible: true,
+                    secondsVisible: true,
+                    tickMarkFormatter: (time, tickMarkType, locale) => {
+
+                        let d = new Date(time*1000);
+                        d = changeTimezone(d, 'Europe/Prague');
+
+                        if (tickMarkType == 0 || tickMarkType == 1 || tickMarkType == 2) {
+                            return d.getDate() +'.'+ (d.getMonth()+1) +'.';
+                        } else if (tickMarkType == 3) {
+                            return ("0" + d.getHours()).slice(-2) +':'+ ("0" + d.getMinutes()).slice(-2);
+                        } else {
+                            return ("0" + d.getHours()).slice(-2) +':'+ ("0" + d.getMinutes()).slice(-2) +':'+ ("0" + d.getSeconds()).slice(-2);
+
+                            //return ("0" + d.getDate()).slice(-2) + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + d.getFullYear() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+                        }
+
+                    },
+                },
+                localization: {
+                    timeFormatter: businessDayOrTimestamp => {
+                        //console.log(businessDayOrTimestamp);
+                        if (LightweightCharts.isBusinessDay(businessDayOrTimestamp)) {
+                            return 'Format for business day';
+                        }
+                        let d = new Date(businessDayOrTimestamp*1000);
+                        d = changeTimezone(d, 'Europe/Prague');
+
+                        return d.getDate() +'.'+ (d.getMonth()+1) +'.'+ d.getFullYear() + ' ' + ("0" + d.getHours()).slice(-2) +':'+ ("0" + d.getMinutes()).slice(-2) +':'+ ("0" + d.getSeconds()).slice(-2);
+                    },
+                },
+            });
+
+            chart.applyOptions({
+                handleScroll: {
+                    //vertTouchDrag: false,
+                },
+                handleScale: {
+                    //axisPressedMouseMove: { time: true, price: false },
+                    axisDoubleClickReset: false,
+                },
+            });
+
+            //nastavit barvu podle zvoleného THEME
+            if ($("#button_toggle_theme").hasClass("active")) {
+                chart.applyOptions({
+                    layout: {
+                        backgroundColor: '#ffffff',
+                        textColor: '#191919',
+                    },
+                    grid: {
+                        vertLines: {
+                            color: '#d6dcde',
+                        },
+                        horzLines: {
+                            color: '#d6dcde',
+                        },
+                    },
+                });
+            } else {
+                chart.applyOptions({
+                    layout: {
+                        backgroundColor: '#0f0f0f',
+                        textColor: 'rgba(255, 255, 255, 0.9)',
+                    },
+                    grid: {
+                        vertLines: {
+                            color: 'rgba(197, 203, 206, 0.5)',
+                        },
+                        horzLines: {
+                            color: 'rgba(197, 203, 206, 0.5)',
+                        },
+                    },
+                });
+            }
+
+            curveSeries = {};  // HB
+
+            candleSerie = chart.addCandlestickSeries();
+            candleSerie.setData(data_pro_graf);
+
+            candleSerie.applyOptions({
+                priceFormat: {
+                    type: 'price',
+                    precision: 4,
+                    minMove: 0.0001,
+                },
+            });
+
+            //chart.timeScale().fitContent();
+            var data_index = data_pro_graf.length - 1 - limit;
+            //if (data_index < 0) data_index = 0;
+            
+            //reset
+            force_history_stop = false;
+            zpatky_do_minulosti = false;
+            force_future_stop = false;
+
+            chart.timeScale().setVisibleLogicalRange({
+                from: data_index,
+                to: data_pro_graf.length - 1,
+            });
+
+            chart.applyOptions({
+                timeScale: {
+                    rightOffset: bars_right_offset,
+                }
+            });
+
+            setLastBarText();
+            if (socket === undefined) {
+                //Zapneme updatování grafu přes WebSocket pokud ještě není iniciováno
+                init_websocket();
+            } else {
+                //Jen pošleme action:parms přes WS
+                send_parms_websocket();
+            }
+
+            chart.subscribeCrosshairMove(handleCrosshairMove);
+
+            chart.subscribeClick(handleClick);
+
+            //Init go_to_realtime_button
+            create_go_to_realtime_button();
+
+            //Change title
+            document.title = 'G ' + $('#pairs').val() +' '+ active_timeline_button;
+        }
+
+        function setLastBarText(jina_data = null) {
+            let set_data = jina_data;
+            if (jina_data === null) {
+                set_data = data_pro_graf[data_pro_graf.length - 1];
+            }
+
+            let rozdil = set_data.close - set_data.open;
+            let percent = (100 / set_data.open * rozdil);
+
+            let color = '<span class="values">';
+            let color_close = '</span>';
+
+            let dateStr = naformatujTimestamp(set_data.time, 1);
+            let price = 'O' + color + set_data.open + color_close + '&nbsp;&nbsp;H' + color + set_data.high + color_close + '&nbsp;&nbsp;L' + color + set_data.low + color_close + '&nbsp;&nbsp;C' + color + set_data.close + color_close + '&nbsp;&nbsp;V' + color + set_data.vol + color_close + '&nbsp;&nbsp;N' + color + set_data.n + color_close + '&nbsp;&nbsp;' + color + Math.round(rozdil*10000) / 10000 + color_close + ' ' + color + '(' + Math.round(percent*100) / 100 + '%)' + color_close;
+            $('#label').html('<span class="blacked">' + $('#pairs').val() +' '+ active_timeline_button + '&nbsp;&nbsp;' + dateStr + '</span>&nbsp;&nbsp;' + price);
+        }
+
+        function pridatStarsiDataDoGrafu(callback=function(){}) {
+            if (!pridatStarsiDataDoGrafu_locked) {
+                pridatStarsiDataDoGrafu_locked = true;
+                var data_time_offset = data_pro_graf[0].time - .001; // TODOX .001 nutno vzit z tf
+                $.getJSON( "https://cstor.efik.cz/"+ test_mode +"charte/"+ $('#pairs').val() +"/"+ active_timeline_button +"/"+ data_time_offset +"/"+ limit, function( data ) {
+                    if (data.chart.length > 0) {
+                        var nova_data_pro_graf = [];
+                        $.each( data.chart, function( key, val ) {
+                            //let datetime = new Date(val.t * 1000);
+                            //let formated_time = String(datetime.getFullYear() + "-" + datetime.getMonth() + "-" + datetime.getDate() + " " + datetime.getHours() + ":" + datetime.getMinutes() + ":" + datetime.getSeconds());
+                            //console.log(formated_time);
+                            var shoda = false;
+                            var i;
+                            for (i = 0; i < data_pro_graf.length; i++) {
+                                if (data_pro_graf[i].time == val.t) {
+                                    shoda = true;
+                                    alert("shoda A");
+                                }
+                            }
+
+                            if (!shoda) nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                        });
+
+                        //Přidáme nové data do data_pro_graf a vykreslíme do grafu
+                        data_pro_graf = nova_data_pro_graf.concat(data_pro_graf);
+                        candleSerie.setData(data_pro_graf);
+                    } else {
+                        force_history_stop = true;
+                    }
+                    pridatStarsiDataDoGrafu_locked = false;
+
+                    callback();
+                });
+            }
+        }
+
+        /*
+        function pridatNovejsiDataDoGrafu(callback=function(){}) {
+            if (!pridatStarsiDataDoGrafu_locked) {
+                pridatStarsiDataDoGrafu_locked = true;
+                var data_time_offset = data_pro_graf[data_pro_graf.length-1].time + active_timeframe_krok;
+                $.getJSON( "https://cstor.efik.cz/"+ test_mode +"chart/"+ $('#pairs').val() +"/"+ active_timeline_button +"/"+ data_time_offset +"/"+ limit, function( data ) {
+                    if (data.chart.length > 0) {
+                        var nova_data_pro_graf = [];
+                        $.each( data.chart, function( key, val ) {
+                            //let datetime = new Date(val.t * 1000);
+                            //let formated_time = String(datetime.getFullYear() + "-" + datetime.getMonth() + "-" + datetime.getDate() + " " + datetime.getHours() + ":" + datetime.getMinutes() + ":" + datetime.getSeconds());
+                            //console.log(formated_time);
+                            var shoda = false;
+                            var i;
+                            for (i = 0; i < data_pro_graf.length; i++) {
+                                if (data_pro_graf[i].time == val.t) {
+                                    shoda = true;
+                                    alert("shoda!");
+                                }
+                            }
+
+                            if (!shoda) nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                        });
+
+                        chart.timeScale().scrollToPosition(-limit, false);
+
+                        //Přidáme nové data do data_pro_graf a vykreslíme do grafu
+                        data_pro_graf = data_pro_graf.concat(nova_data_pro_graf);
+                        candleSerie.setData(data_pro_graf);
+                    } else {
+                        force_future_stop = true;
+                    }
+                    pridatStarsiDataDoGrafu_locked = false;
+
+                    callback();
+                });
+            }
+        }
+        */
+
+        function pridatNovejsiDataDoGrafu(callback=function(){}) {
+            if (!pridatStarsiDataDoGrafu_locked) {
+                pridatStarsiDataDoGrafu_locked = true;
+                var data_time_offset = data_pro_graf[data_pro_graf.length-1].time + active_timeframe_krok;
+                $.getJSON( "https://cstor.efik.cz/"+ test_mode +"chart/"+ $('#pairs').val() +"/"+ active_timeline_button +"/"+ data_time_offset +"/"+ new_ts_future_candles_limit, function( data ) {
+                    if (data.chart.length > 0) {
+                        var nova_data_pro_graf = [];
+                        $.each( data.chart, function( key, val ) {
+                            //let datetime = new Date(val.t * 1000);
+                            //let formated_time = String(datetime.getFullYear() + "-" + datetime.getMonth() + "-" + datetime.getDate() + " " + datetime.getHours() + ":" + datetime.getMinutes() + ":" + datetime.getSeconds());
+                            //console.log(formated_time);
+                            var shoda = false;
+                            var i;
+                            for (i = 0; i < data_pro_graf.length; i++) {
+                                if (data_pro_graf[i].time == val.t) {
+                                    shoda = true;
+                                    alert("shoda B");
+                                }
+                            }
+
+                            if (!shoda) nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                        });
+
+                        chart.timeScale().scrollToPosition(-limit, false);
+
+                        //Přidáme nové data do data_pro_graf a vykreslíme do grafu
+                        data_pro_graf = data_pro_graf.concat(nova_data_pro_graf);
+                        candleSerie.setData(data_pro_graf);
+                    }
+                    force_future_stop = true;
+                    pridatStarsiDataDoGrafu_locked = false;
+
+                    callback();
+                });
+            }
+        }
+
+        function zobrazitStarsiVysekDatDoGrafu(timestamp) {
+            if (!pridatStarsiDataDoGrafu_locked) {
+                pridatStarsiDataDoGrafu_locked = true;
+                var data_time_offset = Math.round(timestamp - (limit/2 * active_timeframe_krok));
+                $.getJSON( "https://cstor.efik.cz/"+ test_mode +"chart/"+ $('#pairs').val() +"/"+ active_timeline_button +"/"+ data_time_offset +"/"+ (limit + new_ts_future_candles_limit), function( data ) {
+                    if (data.chart.length > 0) {
+                        zpatky_do_minulosti = true;
+                        var nova_data_pro_graf = [];
+                        $.each( data.chart, function( key, val ) {
+                            nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                        });
+
+                        //Dáme nové data do data_pro_graf a vykreslíme do grafu
+                        data_pro_graf = nova_data_pro_graf;
+                        candleSerie.setData(data_pro_graf);
+
+                        chart.timeScale().setVisibleLogicalRange({
+                            from: 0,
+                            to: limit,
+                        });
+                    } else {
+                        alert("Požadovaná svíčka nebyla nalezena.");
+                    }
+                    pridatStarsiDataDoGrafu_locked = false;
+                });
+            }
+        }
+
+        function nactiData() {
+            chart.timeScale().scrollToPosition(-4.393527096035542, false);
+            chart.timeScale().setVisibleRange({
+                from: 0,
+                to: 1,
+            });
+        }
+
+        function naformatujTimestamp(timestamp, typ = 0) {
+            let d = new Date(timestamp*1000);
+
+            if (typ == 0) {
+                return d.toLocaleString("cs-CZ", {timeZone: 'Europe/Prague'});
+            } else {
+                d = changeTimezone(d, 'Europe/Prague');
+                return ("0" + d.getDate()).slice(-2) + "." + ("0"+(d.getMonth()+1)).slice(-2) + "." + d.getFullYear() + ' ' + ("0" + d.getHours()).slice(-2) +':'+ ("0" + d.getMinutes()).slice(-2) +':'+ ("0" + d.getSeconds()).slice(-2);
+            }
+            //return ("0" + d.getDate()).slice(-2) + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + d.getFullYear() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+        }
+
+        function new_ts(timestamp) {
+            if (data_pro_graf[data_pro_graf.length-1].time > timestamp && timestamp > data_pro_graf[0].time) {
+                            //V datech už to je, takže stačí přejít na danou svíčku
+                            setLogicalRangeByTimestamp(timestamp);
+            } else {
+                            //Musíme načíst historickej výsek dat
+                            zobrazitStarsiVysekDatDoGrafu(timestamp);
+                            //Zakážeme přidávání nových svíček
+                            toggle_candles_websocket(true);
+            }
+        }
+
+        function setLogicalRangeByTimestamp(timestamp) {
+                            //Zkusíme najít svíčku podle timestamp v data_pro_graf
+                            var i;
+                            for (i = 0; i < data_pro_graf.length; i++) {
+                                if (data_pro_graf[i].time === timestamp) {
+                                    //Našli jsme ji! tak ji vykreslíme
+                                    half_logicalRange = logicalRange/2
+                                    let set_from = i - half_logicalRange;
+                                    let set_to = i + half_logicalRange;
+
+                                    chart.timeScale().setVisibleLogicalRange({
+                                        from: set_from,
+                                        to: set_to,
+                                    });
+                                    return true;
+                                }
+                            }
+                            return false;
+        }
+
+        function updateLastBar(server_response) {
+            var currentBar = {
+                time: null,
+                open: null,
+                high: null,
+                low: null,
+                close: null,
+                vol: null,
+                n: null,
+            };
+            currentBar.time = parseFloat(server_response.t);
+            currentBar.open = parseFloat(server_response.o);
+            currentBar.high = parseFloat(server_response.h);
+            currentBar.low = parseFloat(server_response.l);
+            currentBar.close = parseFloat(server_response.c);
+            currentBar.vol = parseFloat(server_response.v);
+            currentBar.n = parseFloat(server_response.n);
+
+            candleSerie.update(currentBar);
+
+            //Zkontrolujeme jestli už stejný time není v data_pro_graf
+            var matched = false;
+            var matched_index = 0;
+            var i;
+            for (i = 0; i < data_pro_graf.length; i++) {
+                if (data_pro_graf[i].time == currentBar.time) {
+                    matched = true;
+                    matched_index = i;
+                }
+            }
+
+            //Pokud není stejný time tak přidáme to do všech dat (data_pro_graf)
+            if (!matched) {
+                data_pro_graf.push( currentBar );
+            } else {
+                if (matched_index === data_pro_graf.length-1) {
+                    //Smazeme posledni index v array
+                    data_pro_graf.splice(-1,1);
+                    //Pridame aktualni data
+                    data_pro_graf.push( currentBar );
+                }
+            }
+
+            //A upravíme info v legendě
+            //setLastBarText();
+            if ($('#graf:hover').length !== 1) {
+                setLastBarText(currentBar);
+            }
+        }
+
+        function handleClick(param) {
+            if (param.time !== undefined) {
+                socket.send('{"action": "click", "ctime": '+ param.time +', "x": '+ param.point.x +', "y": '+ param.point.y +', "w": '+ $("#graf").width() +', "h": '+ $("#graf").height() +'}');
+            }
+        }
+
+        function handleCrosshairMove(param) {
+                if ( param === undefined || param.time === undefined || param.point.x < 0 || param.point.y < 0) {
+                    setLastBarText();   
+                } else if(param.seriesPrices.entries().next().value !== undefined) {
+                    var var_vol, var_n;
+
+                    $.each( data_pro_graf, function( key, val ) {
+                        if (val.time === param.time) {
+                            var_vol = val.vol;
+                            var_n = val.n;
+                        }
+                    });
+
+                    let params = {
+                        time: param.time,
+                        open: param.seriesPrices.entries().next().value[1].open,
+                        high: param.seriesPrices.entries().next().value[1].high,
+                        low: param.seriesPrices.entries().next().value[1].low,
+                        close: param.seriesPrices.entries().next().value[1].close,
+                        vol: var_vol,
+                        n: var_n,
+                    };
+                    setLastBarText(params);
+                }
+        }
+
+        function changeTimezone(date, ianatz) {
+            // suppose the date is 12:00 UTC
+            var invdate = new Date(date.toLocaleString('en-US', {
+            timeZone: ianatz
+            }));
+
+            // then invdate will be 07:00 in Toronto
+            // and the diff is 5 hours
+            var diff = date.getTime() - invdate.getTime();
+
+            // so 12:00 in Toronto is 17:00 UTC
+            return new Date(date.getTime() - diff); // needs to substract
+        }
+
+        function button_y_auto_toggle() {
+            if (chart.priceScale().options().autoScale) {
+                chart.applyOptions({
+                    priceScale:{
+                        autoScale: false,
+                    }
+                });
+            } else {
+                chart.applyOptions({
+                    priceScale:{
+                        autoScale: true,
+                    }
+                });
+            }
+        }
+
+        function dots_delete() {
+            $.each( allDotsSerie, function( key, val ) {
+                //console.log(val);
+                chart.removeSeries(val);
+            });
+            dots_count = 0;
+            dotsSerie = [];
+            allDotsSerie = [];
+            allDotsSerieData = [];
+        }
+
+        function dots_send() {
+            socket.send('{"action": "graf_rozmezi", "ts": '+ data_pro_graf[0].time +', "te": '+ data_pro_graf[data_pro_graf.length-1].time +', "n": '+ data_pro_graf.length +'}');
+        }
+
+        function loading_open() {
+            $('#loading_fullscreen').css("display","block");
+        }
+
+        function loading_close() {
+            $('#loading_fullscreen').css("display","none");
+        }
+
+        function button_x_reset() {
+            logicalRange = Math.round($("html").width()/wCandle);
+            limit = logicalRange;
+
+            chart.timeScale().setVisibleLogicalRange({
+                from: (data_pro_graf.length - 1) - limit,
+                to: data_pro_graf.length - 1,
+            });
+
+            chart.applyOptions({
+                timeScale: {
+                    rightOffset: bars_right_offset,
+                }
+            });
+        }
+
+        function button_x_max() {
+            let middle_point = chart.timeScale().getVisibleLogicalRange().from + ((chart.timeScale().getVisibleLogicalRange().to - chart.timeScale().getVisibleLogicalRange().from) / 2);
+            chart.timeScale().setVisibleLogicalRange({
+                from: middle_point - 1857.5,
+                to: middle_point + 1857.5,
+            });
+        }
+
+        function theme_toggle() {
+            if ($("#button_toggle_theme").hasClass("active")) {
+                $("body").addClass("dark");
+                $("#button_toggle_theme").removeClass("active");
+
+                chart.applyOptions({
+                    layout: {
+                        backgroundColor: '#0f0f0f',
+                        textColor: 'rgba(255, 255, 255, 0.9)',
+                    },
+                    grid: {
+                        vertLines: {
+                            color: 'rgba(197, 203, 206, 0.5)',
+                        },
+                        horzLines: {
+                            color: 'rgba(197, 203, 206, 0.5)',
+                        },
+                    },
+                });
+
+            } else {
+                $("body").removeClass("dark");
+                $("#button_toggle_theme").addClass("active");
+
+                chart.applyOptions({
+                    layout: {
+                        backgroundColor: '#ffffff',
+                        textColor: '#191919',
+                    },
+                    grid: {
+                        vertLines: {
+                            color: '#d6dcde',
+                        },
+                        horzLines: {
+                            color: '#d6dcde',
+                        },
+                    },
+                });
+            }
+        }
+
+        function bt_toggle() {
+            if ($("#button_toggle_bt").hasClass("active")) {
+                $("#button_toggle_bt").removeClass("active");
+                test_mode = "";
+                //socket.send('{"action": "mode", "mode": "r"}');
+            } else {
+                $("#button_toggle_bt").addClass("active");
+                test_mode = "t";
+                //socket.send('{"action": "mode", "mode": "t"}');
+            }
+            send_parms_websocket();
+        }
+
+        data_interval = setInterval(function(){
+            if (chart !== undefined) {
+                //data = "VÝSTUP: " + JSON.stringify(chart.timeScale().options(), null, 2) + "<br><br>";
+                var data_to_show = "scrollPosition(): " + chart.timeScale().scrollPosition() + "<br>";
+                data_to_show += "getVisibleRange(): " + JSON.stringify(chart.timeScale().getVisibleRange(), null, 2) + "<br>";
+                data_to_show += "getVisibleLogicalRange(): " + JSON.stringify(chart.timeScale().getVisibleLogicalRange(), null, 2) + "<br>";
+                $( "#data" ).html(data_to_show);
+
+                //Pokud je logicalRangeFrom v minusu tak načteme další historii dat
+                if (chart.timeScale().getVisibleLogicalRange().from < 0 && !force_history_stop) {
+                    pridatStarsiDataDoGrafu();
+                }
+
+                //Pokud jsme v minulosti, tak budeme načítat novejsi data do grafu
+                /*
+                if (zpatky_do_minulosti && chart.timeScale().getVisibleLogicalRange().to > data_pro_graf.length && !force_future_stop) {
+                    pridatNovejsiDataDoGrafu();
+                }
+                */
+
+                //Nastavíme logicalRange
+                logicalRange = chart.timeScale().getVisibleLogicalRange().to - chart.timeScale().getVisibleLogicalRange().from;
+                //Nastavíme limit pro vykreslování
+                limit = Math.round(logicalRange);
+
+                //Identifikátor stavu připojení s WS v horní liště
+                if (socket.readyState === 0) {
+                    $( "#status" ).text("Navazuji spojení s WS");
+                    $("#status").attr('class', 'wait');
+
+                    $( " .icon-connect " ).attr('class', 'icon icon-connect statusicon');
+                    $( " .icon-connect " ).addClass('wait');
+                } else if (socket.readyState === 1) {
+                    $( "#status" ).text("Spojení s WS aktivní");
+                    $("#status").attr('class', 'good');
+
+                    $( " .icon-connect " ).attr('class', 'icon icon-connect statusicon');
+                    $( " .icon-connect " ).addClass('good');
+                } else if (socket.readyState === 2) {
+                    $( "#status" ).text("Přerušuji spojení s WS");
+                    $("#status").attr('class', 'wait');
+
+                    $( " .icon-connect " ).attr('class', 'icon icon-connect statusicon');
+                    $( " .icon-connect " ).addClass('wait');
+                } else {
+                    $( "#status" ).text("Spojení s WS přerušeno");
+                    $("#status").attr('class', '');
+
+                    $( " .icon-connect " ).attr('class', 'icon icon-connect statusicon');
+
+                    //Pokud to nebylo přerušeno z naší strany tak se pokusíme o reconnect
+                    if (!ws_force_stop) init_websocket();
+                }
+
+                //Toggle Y auto button
+                if (chart.priceScale().options().autoScale) {
+                    $("#button_y_auto").addClass("active");
+                } else {
+                    $("#button_y_auto").removeClass("active");
+                }
+            }
+        }, 250);
+    </script>
+    <script src="inc/create_go_to_realtime_button.js"></script>
+    <script src="inc/websocket.js"></script>
+    <script src="inc/draw.js"></script>
+</body>
+</html>
