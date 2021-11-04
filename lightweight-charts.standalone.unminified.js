@@ -6764,7 +6764,7 @@
                     return this.rl().Rr();
                 }),
                 (t.prototype.scrollToPosition = function (t, i) {
-                    i ? this.rl().$r(t, 1e3) : this.si.wr(t);
+                    i ? this.rl().$r(t) : this.si.wr(t);
                 }),
                 (t.prototype.scrollToRealTime = function () {
                     this.rl().Kr();
