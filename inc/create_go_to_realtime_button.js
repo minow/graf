@@ -11,7 +11,7 @@ function create_go_to_realtime_button() {
     });
 
     go_to_realtime_button.on( "click", function() {
-        chart.timeScale().scrollToPosition(50, true);
+        chart.timeScale().scrollToPosition(20, true);
     });
 
     go_to_realtime_button.on( "mouseover", function() {
