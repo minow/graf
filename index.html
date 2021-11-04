@@ -395,7 +395,7 @@
                                 }
                             }
 
-                            if (!shoda) nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                            if (!shoda) nova_data_pro_graf.push( { time: parseFloat(val.t), open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
                         });
 
                         chart.timeScale().scrollToPosition(-limit, false);
@@ -421,7 +421,7 @@
                         zpatky_do_minulosti = true;
                         var nova_data_pro_graf = [];
                         $.each( data.chart, function( key, val ) {
-                            nova_data_pro_graf.push( { time: val.t, open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
+                            nova_data_pro_graf.push( { time: parseFloat(val.t), open: parseFloat(val.o), high: parseFloat(val.h), low: parseFloat(val.l), close: parseFloat(val.c), vol: parseFloat(val.v), n: parseFloat(val.n) } );
                         });
 
                         //Dáme nové data do data_pro_graf a vykreslíme do grafu
