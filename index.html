@@ -302,7 +302,7 @@
             if (!pridatStarsiDataDoGrafu_locked) {
                 pridatStarsiDataDoGrafu_locked = true;
                 var data_time_offset = data_pro_graf[0].time - .001; // TODOX .001 nutno vzit z tf
-                active_timeline_button === "ms" ? (limit_pro_nacteni = limit / 2) : (limit_pro_nacteni = limit * 3);
+                active_timeline_button === "ms" ? (limit_pro_nacteni = Math.floor(limit / 2)) : (limit_pro_nacteni = limit * 3);
                 $.getJSON( "https://cstor.efik.cz/"+ test_mode +"charte/"+ $('#pairs').val() +"/"+ active_timeline_button +"/"+ data_time_offset +"/"+ limit_pro_nacteni, function( data ) {
                     if (data.chart.length > 0) {
                         var nova_data_pro_graf = [];
