@@ -4,7 +4,10 @@
  * Copyright (c) 2020 TradingView, Inc.
  * Licensed under Apache License 2.0 https://www.apache.org/licenses/LICENSE-2.0
  */
+	
+var osaY = [];
 !(function () {
+	
     "use strict";
     var t, i;
     function n(t, i) {
@@ -1085,6 +1088,15 @@
                 (t.prototype.Cn = function () {
                     var t = this.Gt,
                         i = t.H();
+                    if (t.th.kn.length != 0)	{
+                        if (osaY.length != 0)	{
+                            osaY = [];
+                        }
+                        for (let i = 0; i < t.th.kn.length; i++) {
+                            osaY.push(t.th.kn[i]);
+                        }
+                        window.osaYdata = osaY;
+                    }
                     if (null !== i) {
                         var n = t.Mt(),
                             h = this.xn(n - 1, i),

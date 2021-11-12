@@ -635,6 +635,11 @@
                 data_to_show += "getVisibleRange(): " + JSON.stringify(chart.timeScale().getVisibleRange(), null, 2) + "<br>";
                 data_to_show += "getVisibleLogicalRange(): " + JSON.stringify(chart.timeScale().getVisibleLogicalRange(), null, 2) + "<br>";
                 data_to_show += "records: " + data_pro_graf.length + "<br>";
+                data_to_show += "Y osa data: <br>";
+                for (let i = 0; i < osaYdata.length; i++) {
+                		data_to_show += JSON.stringify(osaYdata[i]).replace("Tn", "Poloha").replace("An", "Cena") + "<br>";
+                	}
+                data_to_show += "<br>";
                 $( "#data" ).html(data_to_show);
                 $( "#data" ).css("display", 'block');
 
