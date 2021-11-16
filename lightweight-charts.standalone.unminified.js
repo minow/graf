@@ -6,6 +6,7 @@
  */
 	
 var osaY = [];
+var osaX = [];
 !(function () {
 	
     "use strict";
@@ -5979,6 +5980,15 @@ var osaY = [];
                 (t.prototype.Gv = function (t, i) {
                     var n = this,
                         h = this.d_.vt().j().Bn();
+						if (h.length != 0)	{
+	                        if (osaX.length != 0)	{
+	                            osaX = [];
+	                        }
+	                        for (let i = 0; i < h.length; i++) {
+	                            osaX.push({"Tn": h[i].Tn, "An": h[i].An});
+	                        }
+	                        window.osaXdata = osaX;
+	                    }
                     if (h && 0 !== h.length) {
                         var s = h.reduce(Bn, h[0]).Rs;
                         s > 30 && s < 40 && (s = 30), t.save(), (t.strokeStyle = this.dd());

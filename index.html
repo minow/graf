@@ -640,6 +640,11 @@
                 		data_to_show += JSON.stringify(osaYdata[i]).replace("Tn", "Poloha").replace("An", "Cena") + "<br>";
                 	}
                 data_to_show += "<br>";
+                data_to_show += "X osa data: <br>";
+                for (let i = 0; i < osaXdata.length; i++) {
+                		data_to_show += JSON.stringify(osaXdata[i]).replace("Tn", "Poloha").replace("An", "Čas") + "<br>";
+                	}
+                data_to_show += "<br>";
                 $( "#data" ).html(data_to_show);
                 $( "#data" ).css("display", 'block');
 
